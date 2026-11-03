@@ -36,6 +36,24 @@ $('#preview').onclick=()=>{if(!book.words.length)return;$('#print-preview').inne
 let swReady=null;if('serviceWorker'in navigator)swReady=navigator.serviceWorker.register('./sw.js').then(()=>navigator.serviceWorker.ready).catch(()=>null);
 $('#offline').onclick=async()=>{const b=$('#offline');b.disabled=true;try{const reg=await swReady;if(!reg?.active)throw Error('浏览器不支持离线缓存，请使用 HTTPS 或 localhost');const manifest=await fetch('offline-manifest.json').then(r=>{if(!r.ok)throw Error('离线资源清单不可用');return r.json();});const cache=await caches.open('wordleaf-v1');let done=0;for(const path of manifest){const url=new URL(path,location.href);if(!await cache.match(url)){const r=await fetch(url);if(!r.ok)throw Error('下载失败：'+path);await cache.put(url,r);}b.textContent=`离线准备 ${++done}/${manifest.length}`;}if(navigator.storage?.persist)await navigator.storage.persist();b.textContent='✓ 离线资源已就绪';toast('离线资源已保存；浏览器清理缓存后需重新准备。');}catch(e){b.textContent='重试离线准备';toast(e.message);}finally{b.disabled=false;}};
 fetch('dict/meta.json').then(r=>r.json()).then(m=>{$('#dict-info').textContent=`离线词库收录 ${m.count.toLocaleString()} 条词条，完整保留其中的中文义项；含 IELTS 标签 ${m.ielts.toLocaleString()} 条；已核对专八参考表 ${m.tem8.toLocaleString()} 词及雅思参考表 ${m.ielts_reference.toLocaleString()} 词，全部可查。参考表来自 kajweb/dict，不代表官方穷尽词表。`;}).catch(()=>{$('#dict-info').textContent='词库暂未加载，请联网后重试。';});
-renderBook();if(book.words.length)$('#return-dialog').showModal();if(!storageOK)toast('浏览器存储不可用，请及时打印保存。');
+renderBook();if(!storageOK)toast('浏览器存储不可用，请及时打印保存。');
 
 $("#zoom").oninput=e=>{$("#image-wrap").style.width=e.target.value+"%";};
+
+// Intro and returning-notebook dialogs are shown sequentially, never stacked.
+const tourPages=[
+ {title:'把文章变成你的词汇课堂',description:'在电脑上上传或拖入照片，在手机上从相册选择或直接拍照。支持一次上传多张，点击照片页签切换文章。',tip:'想先体验？关闭指南后点击「试用示例」，不需要准备照片。',art:'<div class="tour-sheet">A page of<br><mark>possibilities.</mark></div><span class="tour-symbol">＋</span>'},
+ {title:'照片里的每个词，都能点开',description:'识别完成后，直接轻点原图中的单词色块。放大照片看得更清楚；黄色色块表示识别不太确定，请对照原文确认。',tip:'支持倾斜识别和90°旋转；遇到拼写错误，可在词卡底部修改查词，并查看相似拼写建议。',art:'<div class="tour-sheet">Curiosity is the<br>beginning of <mark>discovery.</mark></div>'},
+ {title:'不只看翻译，也看它如何使用',description:'词卡显示音标、词库收录的各个词性和中文义项，并附文章原句。常见变形可还原成原形，例如 studies → study。',tip:'约77万词条；音标以英式为主。有本地英语声音时可朗读。例句取自原文，暂不提供逐词性的双语例句。',art:'<div class="tour-sheet tour-mini"><b>study <span style="color:#b3923e">☆</span></b>/ˈstʌdi/ · n. 学习；研究<br>vt. 学习；研究　vi. 学习</div>'},
+ {title:'星标收藏，整理成一张好用的纸',description:'点击词卡右上角星标，单词就会进入打印薄，按收藏顺序排列。手机端轻点底部「我的打印薄」即可展开或收起。',tip:'打印预览采用A4双列，保留单词、音标和释义，去掉例句并附打印时间；在系统打印窗口选择「另存为PDF」。',art:'<div class="tour-sheet tour-cols"><div>01. study<br>学习；研究<br>02. discover</div><div>03. curiosity<br>好奇心<br>04. explore</div></div>'},
+ {title:'准备一次，离线也能安心学',description:'点击「准备离线使用」，下载约80MB词库和识别资源。完成后，照片识别和查词均在设备内进行，照片不上传服务器。',tip:'单词薄保存在当前浏览器；下次打开可继续或新建，旧本保留在历史记录。清理网站数据、更换浏览器或更换网址不会自动迁移收藏。',art:'<div class="tour-lock">✓ 本地处理<small>照片留在设备里 · 断网也能读</small></div>'}
+];
+let tourIndex=0,returnPending=!!book.words.length;
+function drawTour(){const p=tourPages[tourIndex];$('#tour-art').className='tour-art';$('#tour-art').innerHTML=p.art;$('#tour-step').textContent=`${String(tourIndex+1).padStart(2,'0')} / ${String(tourPages.length).padStart(2,'0')}`;$('#tour-title').textContent=p.title;$('#tour-description').textContent=p.description;$('#tour-tip').textContent=p.tip;$('#tour-prev').disabled=tourIndex===0;$('#tour-next').textContent=tourIndex===tourPages.length-1?'开始拾词 ✓':'下一页 →';$('#tour-dots').innerHTML=tourPages.map((p,i)=>`<button aria-label="第${i+1}页：${p.title}" aria-current="${i===tourIndex}" data-tour-page="${i}"></button>`).join('');}
+function openTour(){tourIndex=0;drawTour();$('#tour').showModal();}
+function finishTour(){try{localStorage.setItem('wordleaf-tour-v1','seen');}catch{}$('#tour').close();}
+$('#show-tour').onclick=openTour;$('#tour-skip').onclick=finishTour;$('#tour-next').onclick=()=>{if(tourIndex===tourPages.length-1)finishTour();else{tourIndex++;drawTour();}};$('#tour-prev').onclick=()=>{if(tourIndex>0){tourIndex--;drawTour();}};$('#tour-dots').onclick=e=>{const b=e.target.closest('[data-tour-page]');if(b){tourIndex=+b.dataset.tourPage;drawTour();}};
+$('#tour').addEventListener('keydown',e=>{if(e.key==='ArrowRight'){e.preventDefault();if(tourIndex<tourPages.length-1){tourIndex++;drawTour();}}else if(e.key==='ArrowLeft'){e.preventDefault();if(tourIndex>0){tourIndex--;drawTour();}}});
+$('#tour').addEventListener('close',()=>{try{localStorage.setItem('wordleaf-tour-v1','seen');}catch{}if(returnPending){returnPending=false;$('#return-dialog').showModal();}});
+let tourSeen=false;try{tourSeen=localStorage.getItem('wordleaf-tour-v1')==='seen';}catch{}
+if(!tourSeen)openTour();else if(returnPending){returnPending=false;$('#return-dialog').showModal();}
